@@ -1,16 +1,30 @@
 package main
 
 import (
-	"fmt"
+	"flag"
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"path"
 	"time"
 )
 
+/*
+	config:
+		ignored files/patterns
+		command to run
+*/
+var (
+	command = flag.String("cmd", "echo file change", "shell command that runs on file change")
+)
+
 func main() {
-	loc := os.Args[1]
+	flag.Parse()
+	loc := "."
+	if len(os.Args) >= 2 {
+		loc = os.Args[1]
+	}
 
 	// Check if loc is a file
 	locStat, err := os.Stat(loc)
@@ -18,9 +32,10 @@ func main() {
 		watchFile(loc)
 	}
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Invalid path", err)
 	}
 
+	// Get all files if loc is a Directory
 	fileLocs := []string{}
 	err = getFiles(loc, &fileLocs)
 	if err != nil {
@@ -64,14 +79,23 @@ func watchFile(filePath string) error {
 	for {
 		stat, err := os.Stat(filePath)
 		if err != nil {
-			return err
+			cmd := exec.Command("bash", "-c", *command)
+			err := cmd.Run()
+			if err != nil {
+				log.Fatal(err)
+			}
+			return nil
 		}
 
 		if stat.Size() != initialStat.Size() || stat.ModTime() != initialStat.ModTime() {
-			fmt.Println("file change")
-			initialStat, _ = os.Stat(filePath)
+			cmd := exec.Command("bash", "-c", *command)
+			err := cmd.Run()
+			if err != nil {
+				log.Fatal(err)
+			}
+			initialStat = stat
 		}
 
-		time.Sleep(1 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
 }
