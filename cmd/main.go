@@ -11,17 +11,32 @@ import (
 
 func main() {
 	loc := os.Args[1]
-	filePaths := []string{}
-	err := getFiles(loc, &filePaths)
+
+	// Check if loc is a file
+	locStat, err := os.Stat(loc)
+	if !locStat.IsDir() {
+		watchFile(loc)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Files to be stalked:")
-	fmt.Println(filePaths)
-	// err = watchFile(loc)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+
+	fileLocs := []string{}
+	err = getFiles(loc, &fileLocs)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, fileLoc := range fileLocs {
+		fileLoc := fileLoc
+		go func() {
+			err = watchFile(fileLoc)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}()
+	}
+	for {
+	}
 }
 
 func getFiles(loc string, res *[]string) error {
@@ -33,6 +48,7 @@ func getFiles(loc string, res *[]string) error {
 		fPath := path.Join(loc, f.Name())
 		if f.IsDir() {
 			getFiles(fPath, res)
+			continue
 		}
 		*res = append(*res, fPath)
 	}
