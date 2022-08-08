@@ -1,0 +1,4 @@
+{
+  "command": "bun run server.ts",
+  "ignored": ["README.md"]
+}

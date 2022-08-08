@@ -27,6 +27,7 @@ var (
 )
 
 func main() {
+	log.SetFlags(log.Lshortfile)
 	flag.Parse()
 	fmt.Println(prefix, "Tracking files to be stalked...")
 
@@ -34,7 +35,7 @@ func main() {
 	locStat, err := os.Stat(*loc)
 	if !locStat.IsDir() {
 		fmt.Println(prefix, "Stalking tracked file")
-		watchFile(*loc)
+		watchFile(*loc, nil)
 	}
 	if err != nil {
 		log.Fatal("Invalid path", err)
@@ -51,10 +52,11 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Println(prefix, "Stalking tracked files")
+	initialCmd := runCmd(command)
 	for _, fileLoc := range fileLocs {
 		fileLoc := fileLoc
 		go func() {
-			err = watchFile(fileLoc)
+			err = watchFile(fileLoc, initialCmd)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -90,35 +92,41 @@ func getFiles(loc string, res *[]string, ignored *[]string) error {
 	return nil
 }
 
-func watchFile(filePath string) error {
+func watchFile(filePath string, initialCmd *exec.Cmd) error {
 	initialStat, err := os.Stat(filePath)
 	if err != nil {
 		return err
 	}
-
 	for {
 		stat, err := os.Stat(filePath)
 		if err != nil {
-			cmd := exec.Command("bash", "-c", *command)
-			err := cmd.Run()
-			if err != nil {
-				log.Fatal(err)
-			}
+			// if err := initialCmd.Process.Kill(); err != nil {
+			// 	log.Fatal(err)
+			// }
+
+			initialCmd.Process.Kill()
+			initialCmd = runCmd(command)
 			return nil
 		}
 
 		if stat.Size() != initialStat.Size() || stat.ModTime() != initialStat.ModTime() {
-			cmd := exec.Command("bash", "-c", *command)
-			var stdout bytes.Buffer
-			cmd.Stdout = &stdout
-			err := cmd.Run()
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Print(prefix, stdout.String())
+			initialCmd.Process.Kill()
+			runCmd(command)
 			initialStat = stat
 		}
 
 		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+func runCmd(command *string) *exec.Cmd {
+	cmd := exec.Command("bash", "-c", *command)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	err := cmd.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Print(prefix, stdout.String())
+	return cmd
 }
