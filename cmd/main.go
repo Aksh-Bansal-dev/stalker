@@ -47,7 +47,6 @@ func main() {
 		command = &configData.Command
 	}
 	err = getFiles(*loc, &fileLocs, &configData.Ignored)
-	log.Println(fileLocs)
 	if err != nil {
 		log.Fatal(err)
 	}
