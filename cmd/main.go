@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path"
 	"time"
+
+	"github.com/Aksh-Bansal-dev/stalker/internal/config"
 )
 
 /*
@@ -17,6 +19,8 @@ import (
 		ignored files/patterns
 		command to run
 */
+const prefix = "[stalker] "
+
 var (
 	command = flag.String("cmd", "echo file change", "shell command that runs on file change")
 	loc     = flag.String("loc", ".", "location of file/directory to watch")
@@ -24,10 +28,12 @@ var (
 
 func main() {
 	flag.Parse()
+	fmt.Println(prefix, "Tracking files to be stalked...")
 
 	// Check if loc is a file
 	locStat, err := os.Stat(*loc)
 	if !locStat.IsDir() {
+		fmt.Println(prefix, "Stalking tracked file")
 		watchFile(*loc)
 	}
 	if err != nil {
@@ -36,10 +42,16 @@ func main() {
 
 	// Get all files if loc is a Directory
 	fileLocs := []string{}
-	err = getFiles(*loc, &fileLocs)
+	configData := config.GetConfig(*loc)
+	if configData.Command != "" {
+		command = &configData.Command
+	}
+	err = getFiles(*loc, &fileLocs, &configData.Ignored)
+	log.Println(fileLocs)
 	if err != nil {
 		log.Fatal(err)
 	}
+	fmt.Println(prefix, "Stalking tracked files")
 	for _, fileLoc := range fileLocs {
 		fileLoc := fileLoc
 		go func() {
@@ -53,15 +65,25 @@ func main() {
 	}
 }
 
-func getFiles(loc string, res *[]string) error {
+func getFiles(loc string, res *[]string, ignored *[]string) error {
 	files, err := ioutil.ReadDir(loc)
 	if err != nil {
 		return err
 	}
 	for _, f := range files {
 		fPath := path.Join(loc, f.Name())
+		flag := false
+		for _, ignoredP := range *ignored {
+			if matched, _ := path.Match(path.Join(loc, ignoredP), fPath); matched {
+				flag = true
+				break
+			}
+		}
+		if flag {
+			continue
+		}
 		if f.IsDir() {
-			getFiles(fPath, res)
+			getFiles(fPath, res, ignored)
 			continue
 		}
 		*res = append(*res, fPath)
@@ -94,7 +116,7 @@ func watchFile(filePath string) error {
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Print("[stalker] ", stdout.String())
+			fmt.Print(prefix, stdout.String())
 			initialStat = stat
 		}
 
