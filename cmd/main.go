@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -17,19 +19,16 @@ import (
 */
 var (
 	command = flag.String("cmd", "echo file change", "shell command that runs on file change")
+	loc     = flag.String("loc", ".", "location of file/directory to watch")
 )
 
 func main() {
 	flag.Parse()
-	loc := "."
-	if len(os.Args) >= 2 {
-		loc = os.Args[1]
-	}
 
 	// Check if loc is a file
-	locStat, err := os.Stat(loc)
+	locStat, err := os.Stat(*loc)
 	if !locStat.IsDir() {
-		watchFile(loc)
+		watchFile(*loc)
 	}
 	if err != nil {
 		log.Fatal("Invalid path", err)
@@ -37,7 +36,7 @@ func main() {
 
 	// Get all files if loc is a Directory
 	fileLocs := []string{}
-	err = getFiles(loc, &fileLocs)
+	err = getFiles(*loc, &fileLocs)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -89,10 +88,13 @@ func watchFile(filePath string) error {
 
 		if stat.Size() != initialStat.Size() || stat.ModTime() != initialStat.ModTime() {
 			cmd := exec.Command("bash", "-c", *command)
+			var stdout bytes.Buffer
+			cmd.Stdout = &stdout
 			err := cmd.Run()
 			if err != nil {
 				log.Fatal(err)
 			}
+			fmt.Print("[stalker] ", stdout.String())
 			initialStat = stat
 		}
 
