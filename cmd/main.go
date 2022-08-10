@@ -14,11 +14,6 @@ import (
 	"github.com/Aksh-Bansal-dev/stalker/internal/config"
 )
 
-/*
-	config:
-		ignored files/patterns
-		command to run
-*/
 const prefix = "[stalker] "
 
 var (
@@ -101,10 +96,6 @@ func watchFile(filePath string, initialCmd *exec.Cmd) error {
 	for {
 		stat, err := os.Stat(filePath)
 		if err != nil {
-			// if err := initialCmd.Process.Kill(); err != nil {
-			// 	log.Fatal(err)
-			// }
-
 			initialCmd = runCmd(command, initialCmd)
 			return nil
 		}
@@ -122,10 +113,6 @@ func runCmd(command *string, initialCmd *exec.Cmd) *exec.Cmd {
 	cmd := exec.Command("bash", "-c", *command)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	// go func() {
-	// 	cmd.Run()
-	// 	fmt.Println(prefix + "reloading...")
-	// }()
 	if initialCmd != nil {
 		initialCmd.Process.Kill()
 	}
