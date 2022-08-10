@@ -35,7 +35,8 @@ func main() {
 	locStat, err := os.Stat(*loc)
 	if !locStat.IsDir() {
 		fmt.Println(prefix, "Stalking tracked file")
-		watchFile(*loc, nil)
+		initialCmd := runCmd(command, nil)
+		watchFile(*loc, initialCmd)
 	}
 	if err != nil {
 		log.Fatal("Invalid path", err)
@@ -52,7 +53,7 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Println(prefix, "Stalking tracked files")
-	initialCmd := runCmd(command)
+	initialCmd := runCmd(command, nil)
 	for _, fileLoc := range fileLocs {
 		fileLoc := fileLoc
 		go func() {
@@ -104,29 +105,32 @@ func watchFile(filePath string, initialCmd *exec.Cmd) error {
 			// 	log.Fatal(err)
 			// }
 
-			initialCmd.Process.Kill()
-			initialCmd = runCmd(command)
+			initialCmd = runCmd(command, initialCmd)
 			return nil
 		}
 
 		if stat.Size() != initialStat.Size() || stat.ModTime() != initialStat.ModTime() {
-			initialCmd.Process.Kill()
-			runCmd(command)
+			initialCmd = runCmd(command, initialCmd)
 			initialStat = stat
 		}
-
 		time.Sleep(500 * time.Millisecond)
 	}
 }
 
-func runCmd(command *string) *exec.Cmd {
+func runCmd(command *string, initialCmd *exec.Cmd) *exec.Cmd {
+	*command = "bun run server.ts"
 	cmd := exec.Command("bash", "-c", *command)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	err := cmd.Run()
-	if err != nil {
-		log.Fatal(err)
+	// go func() {
+	// 	cmd.Run()
+	// 	fmt.Println(prefix + "reloading...")
+	// }()
+	if initialCmd != nil {
+		initialCmd.Process.Kill()
 	}
-	fmt.Print(prefix, stdout.String())
+	go cmd.Run()
+	fmt.Println(prefix + "reloading...")
+	fmt.Println(prefix, stdout.String())
 	return cmd
 }
