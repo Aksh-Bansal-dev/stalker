@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Aksh-Bansal-dev/stalker/internal/config"
+	"github.com/Aksh-Bansal-dev/stalker/internal/utils"
 )
 
 const prefix = "[stalker] "
@@ -19,53 +21,74 @@ const prefix = "[stalker] "
 var (
 	command = flag.String("cmd", "echo file change", "shell command that runs on file change")
 	loc     = flag.String("loc", ".", "location of file/directory to watch")
+	reload  chan bool
 )
 
 func main() {
 	log.SetFlags(log.Lshortfile)
 	flag.Parse()
-	fmt.Println(prefix, "Tracking files to be stalked...")
 
 	// Check if loc is a file
 	locStat, err := os.Stat(*loc)
 	if !locStat.IsDir() {
 		fmt.Println(prefix, "Stalking tracked file")
-		initialCmd := runCmd(command, nil)
-		watchFile(*loc, initialCmd)
+		reload <- true
+		watchFile(nil, *loc)
 	}
 	if err != nil {
 		log.Fatal("Invalid path", err)
 	}
 
 	// Get all files if loc is a Directory
-	fileLocs := []string{}
 	configData := config.GetConfig(*loc)
 	if configData.Command != "" {
 		command = &configData.Command
 	}
-	err = getFiles(*loc, &fileLocs, &configData.Ignored)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println(prefix, "Stalking tracked files")
-	initialCmd := runCmd(command, nil)
-	for _, fileLoc := range fileLocs {
-		fileLoc := fileLoc
-		go func() {
-			err = watchFile(fileLoc, initialCmd)
+	reload = make(chan bool, 2)
+	reload <- true
+	initialFiles, err := getFiles(*loc, &configData.Ignored)
+	go func() {
+		for {
+			curFiles, err := getFiles(*loc, &configData.Ignored)
 			if err != nil {
 				log.Fatal(err)
 			}
-		}()
-	}
+			flag := false
+			if utils.AreDifferent(curFiles, initialFiles) {
+				flag = true
+			}
+			initialFiles = curFiles
+			if flag {
+				reload <- flag
+			}
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
+	var initialCmd *exec.Cmd = nil
+	var cancelCtx []context.CancelFunc = nil
 	for {
+		select {
+		case <-reload:
+			if initialCmd == nil {
+				fmt.Println(prefix, "starting...")
+			} else {
+				fmt.Println(prefix, "reloading...")
+			}
+			for _, cancel := range cancelCtx {
+				cancel()
+			}
+			initialCmd = runCmd(command, initialCmd)
+			cancelCtx = watchFiles(&initialFiles)
+		}
 	}
 }
 
-func getFiles(loc string, res *[]string, ignored *[]string) error {
+func getFiles(loc string, ignored *[]string) ([]string, error) {
+	res := []string{}
 	files, err := ioutil.ReadDir(loc)
 	if err != nil {
-		return err
+		return res, err
 	}
 	for _, f := range files {
 		fPath := path.Join(loc, f.Name())
@@ -80,44 +103,67 @@ func getFiles(loc string, res *[]string, ignored *[]string) error {
 			continue
 		}
 		if f.IsDir() {
-			getFiles(fPath, res, ignored)
+			subFiles, err := getFiles(fPath, ignored)
+			if err != nil {
+				return res, err
+			}
+			res = append(res, subFiles...)
 			continue
 		}
-		*res = append(*res, fPath)
+		res = append(res, fPath)
 	}
-	return nil
+	return res, nil
 }
 
-func watchFile(filePath string, initialCmd *exec.Cmd) error {
+func watchFiles(fileLocs *[]string) []context.CancelFunc {
+	cancelCtx := []context.CancelFunc{}
+	for _, fileLoc := range *fileLocs {
+		fileLoc := fileLoc
+		ctx, cancel := context.WithCancel(context.Background())
+		cancelCtx = append(cancelCtx, cancel)
+		go func() {
+			watchFile(ctx, fileLoc)
+		}()
+	}
+	return cancelCtx
+}
+
+func watchFile(ctx context.Context, filePath string) {
 	initialStat, err := os.Stat(filePath)
 	if err != nil {
-		return err
+		return
 	}
 	for {
-		stat, err := os.Stat(filePath)
-		if err != nil {
-			initialCmd = runCmd(command, initialCmd)
-			return nil
-		}
+		select {
+		case <-ctx.Done():
+			return
 
-		if stat.Size() != initialStat.Size() || stat.ModTime() != initialStat.ModTime() {
-			initialCmd = runCmd(command, initialCmd)
-			initialStat = stat
+		default:
+			stat, err := os.Stat(filePath)
+			if err != nil {
+				return
+			}
+
+			if stat.Size() != initialStat.Size() || stat.ModTime() != initialStat.ModTime() {
+				reload <- true
+				initialStat = stat
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
-		time.Sleep(500 * time.Millisecond)
 	}
 }
 
 func runCmd(command *string, initialCmd *exec.Cmd) *exec.Cmd {
-	*command = "bun run server.ts"
 	cmd := exec.Command("bash", "-c", *command)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if initialCmd != nil {
-		initialCmd.Process.Kill()
+		err := initialCmd.Process.Kill()
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 	go cmd.Run()
-	fmt.Println(prefix + "reloading...")
 	fmt.Println(prefix, stdout.String())
 	return cmd
 }
